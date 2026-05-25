@@ -1,4 +1,4 @@
-const DEFAULT_WS_URL = 'ws://localhost:8000/ws/test-session';
+const DEFAULT_WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:8000/ws/session/demo-session';
 
 export function createSocket({ url = DEFAULT_WS_URL, onMessage, onStatusChange } = {}) {
   let socket = null;

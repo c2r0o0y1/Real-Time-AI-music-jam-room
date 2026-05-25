@@ -1,4 +1,4 @@
-const DEFAULT_URL = 'ws://localhost:8000/ws/session/demo-session';
+const WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:8000/ws/session/demo-session';
 
 let socket = null;
 let status = 'offline';
@@ -17,7 +17,7 @@ export function subscribeAIEngineStatus(listener) {
   };
 }
 
-export function connectAIEngine(url = DEFAULT_URL) {
+export function connectAIEngine(url = WS_URL) {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
   }

@@ -20,7 +20,7 @@ import EventLog from './components/EventLog';
 import { startMidiInput } from './services/midiService';
 import { connectAIEngine, disconnectAIEngine, sendToAIEngine, subscribeAIEngineStatus } from './services/aiEngineSocket';
 
-const DEFAULT_WS_URL = 'ws://localhost:8000/ws/test-session';
+const DEFAULT_WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:8000/ws/session/demo-session';
 const MAX_LOG_EVENTS = 10;
 
 const addRecent = (setter, event, max = MAX_LOG_EVENTS) => setter((prev) => [event, ...prev].slice(0, max));
