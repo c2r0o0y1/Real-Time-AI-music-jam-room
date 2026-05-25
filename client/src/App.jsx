@@ -18,9 +18,9 @@ import AdvancedConnectionPanel from './components/AdvancedConnectionPanel';
 import JamHistoryPanel from './components/JamHistoryPanel';
 import EventLog from './components/EventLog';
 import { startMidiInput } from './services/midiService';
-import { connectAIEngine, disconnectAIEngine, sendToAIEngine, subscribeAIEngineStatus } from './services/aiEngineSocket';
+import { connectAIEngine, disconnectAIEngine, sendToAIEngine, subscribeAIEngineMessages, subscribeAIEngineStatus } from './services/aiEngineSocket';
 
-const DEFAULT_WS_URL = import.meta.env.VITE_API_WS_URL || 'ws://localhost:8000/ws/session/demo-session';
+const DEFAULT_WS_URL = 'ws://localhost:8000/ws/session/demo-session';
 const MAX_LOG_EVENTS = 10;
 
 const addRecent = (setter, event, max = MAX_LOG_EVENTS) => setter((prev) => [event, ...prev].slice(0, max));
@@ -202,6 +202,15 @@ export default function App() {
 
   useEffect(() => {
     const unsub = subscribeAIEngineStatus((status) => setAiEngineConnectionStatus(status));
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeAIEngineMessages((msg) => {
+      if (msg?.type === 'session_ready') {
+        console.log('[AI Engine WS] session_ready received:', msg);
+      }
+    });
     return () => unsub();
   }, []);
 
@@ -505,6 +514,8 @@ export default function App() {
     setTimeout(() => notes.forEach((n) => sendManualMidi('note_off', n, 0)), 280);
   };
 
+  const canSendManualMidi = aiEngineConnectionStatus === 'connected';
+
   const startLiveJam = () => setSessionMode('playing');
   const stopSession = () => {
     setSessionMode('stopped');
@@ -575,7 +586,7 @@ export default function App() {
             <section className="panel">
               <h2>Live MIDI Input</h2>
               <div className="row wrap">
-                <button className="btn" onClick={() => connectAIEngine()}>Connect AI Engine</button>
+                <button className="btn" onClick={() => { setAiEngineConnectionStatus('connecting'); connectAIEngine(DEFAULT_WS_URL); }}>Connect AI Engine</button>
                 <button className="btn secondary" onClick={startMidiHotPath}>Start MIDI Input</button>
               </div>
               <button className="btn" onClick={handleConnectMidi}>Connect MIDI</button>
@@ -586,9 +597,9 @@ export default function App() {
               <p className="small">MIDI Inputs: {midiInputDevices.length ? midiInputDevices.join(', ') : 'None detected'}</p>
               <p className="small">Active Notes: {activeNotes.length ? activeNotes.map((n) => `${n}(${midiNoteToName(n)})`).join(', ') : 'None'}</p>
               <div className="row wrap">
-                <button className="btn secondary" onClick={sendCNote}>Send C Note</button>
-                <button className="btn secondary" onClick={() => sendChord([60, 64, 67])}>Send C Major Chord</button>
-                <button className="btn secondary" onClick={() => sendChord([57, 60, 64])}>Send A Minor Chord</button>
+                <button className="btn secondary" onClick={sendCNote} disabled={!canSendManualMidi}>Send C Note</button>
+                <button className="btn secondary" onClick={() => sendChord([60, 64, 67])} disabled={!canSendManualMidi}>Send C Major Chord</button>
+                <button className="btn secondary" onClick={() => sendChord([57, 60, 64])} disabled={!canSendManualMidi}>Send A Minor Chord</button>
               </div>
               {lastSentMidiEvent ? (
                 <p className="small">Last Sent: {lastSentMidiEvent.event} n={lastSentMidiEvent.note} v={lastSentMidiEvent.velocity}</p>
