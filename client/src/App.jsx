@@ -18,7 +18,7 @@ import AdvancedConnectionPanel from './components/AdvancedConnectionPanel';
 import JamHistoryPanel from './components/JamHistoryPanel';
 import EventLog from './components/EventLog';
 import { startMidiInput } from './services/midiService';
-import { connectAIEngine, disconnectAIEngine, sendToAIEngine, subscribeAIEngineMessages, subscribeAIEngineStatus } from './services/aiEngineSocket';
+import { connectAIEngine, disconnectAIEngine, sendToAIEngine, subscribeAIEngineStatus } from './services/aiEngineSocket';
 
 const DEFAULT_WS_URL = 'ws://localhost:8000/ws/session/demo-session';
 const MAX_LOG_EVENTS = 10;
@@ -154,6 +154,21 @@ export default function App() {
   const isPlaying = sessionMode === 'playing' || sessionMode === 'recording' || sessionMode === 'demo';
   const isRecording = sessionMode === 'recording';
   const loopMs = loopLengthBars * 4 * (60000 / (bpm || 90));
+  const aiBandRef = useRef(aiBand);
+  const aiMonitoringRef = useRef(aiMonitoring);
+  const aiVolumeRef = useRef(aiVolume);
+  const isRecordingRef = useRef(isRecording);
+  const sessionModeRef = useRef(sessionMode);
+  const playheadMsRef = useRef(playheadMs);
+  const loopMsRef = useRef(loopMs);
+
+  useEffect(() => { aiBandRef.current = aiBand; }, [aiBand]);
+  useEffect(() => { aiMonitoringRef.current = aiMonitoring; }, [aiMonitoring]);
+  useEffect(() => { aiVolumeRef.current = aiVolume; }, [aiVolume]);
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
+  useEffect(() => { sessionModeRef.current = sessionMode; }, [sessionMode]);
+  useEffect(() => { playheadMsRef.current = playheadMs; }, [playheadMs]);
+  useEffect(() => { loopMsRef.current = loopMs; }, [loopMs]);
 
   const recommendedAudioInstruments = new Set(['Guitar', 'Voice', 'Violin', 'Acoustic Piano', 'Drums', 'Other']);
   const recommendation = recommendedAudioInstruments.has(userInstrument) ? 'Recommended input: Audio Interface / Microphone' : '';
@@ -206,15 +221,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const unsub = subscribeAIEngineMessages((msg) => {
-      if (msg?.type === 'session_ready') {
-        console.log('[AI Engine WS] session_ready received:', msg);
-      }
-    });
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
     socketRef.current = createSocket({
       url: wsUrl,
       onStatusChange: setWsStatus,
@@ -242,13 +248,13 @@ export default function App() {
 
         if (msg.type === 'bass_note') {
           const track = mapAiTrack('bass');
-          const channel = aiBand[track.key];
-          if (aiMonitoring && channel?.enabled && !channel.muted) {
-            playBassNote(msg.note, msg.velocity, msg.duration_ms, channel.volume * aiVolume).catch(() => setMetrics((m) => ({ ...m, droppedCount: m.droppedCount + 1 })));
+          const channel = aiBandRef.current[track.key];
+          if (aiMonitoringRef.current && channel?.enabled && !channel.muted) {
+            playBassNote(msg.note, msg.velocity, msg.duration_ms, channel.volume * aiVolumeRef.current).catch(() => setMetrics((m) => ({ ...m, droppedCount: m.droppedCount + 1 })));
           }
           addRecent(setRecentAiEvents, { ...msg, timestamp: now });
-          if (isRecording || sessionMode === 'demo') {
-            const clip = makeClip({ track: track.label, instrument: track.label.replace('AI ', ''), startTimeMs: playheadMs, durationMs: msg.duration_ms || 450, notes: [{ note: msg.note, velocity: msg.velocity, startOffsetMs: 0, durationMs: msg.duration_ms || 450 }], source: 'ai', name: `${track.label} Pattern`, muted: false, loopMs });
+          if (isRecordingRef.current || sessionModeRef.current === 'demo') {
+            const clip = makeClip({ track: track.label, instrument: track.label.replace('AI ', ''), startTimeMs: playheadMsRef.current, durationMs: msg.duration_ms || 450, notes: [{ note: msg.note, velocity: msg.velocity, startOffsetMs: 0, durationMs: msg.duration_ms || 450 }], source: 'ai', name: `${track.label} Pattern`, muted: false, loopMs: loopMsRef.current });
             setClips((prev) => [clip, ...prev].slice(0, 200));
           }
           return;
@@ -260,11 +266,11 @@ export default function App() {
           setUpcomingSegment({ startsInMs: maxOffset, durationLabel: `${Math.round((msg.segment_duration_ms || 1000) / 1000)} sec`, instruments: track.label.replace('AI ', ''), deadline: maxOffset > 180 ? 'Late' : 'On Time', bufferReady: `${((msg.segment_duration_ms || 1000) / 1000).toFixed(1)} sec` });
           msg.notes.forEach((n) => {
             if ((n.start_offset_ms || 0) > 180) setMetrics((m) => ({ ...m, missedDeadlineCount: m.missedDeadlineCount + 1 }));
-            if (aiMonitoring && aiBand[track.key]?.enabled && !aiBand[track.key]?.muted) {
-              window.setTimeout(() => playBassNote(n.note, n.velocity, n.duration_ms, aiBand[track.key].volume * aiVolume).catch(() => setMetrics((m) => ({ ...m, droppedCount: m.droppedCount + 1 }))), n.start_offset_ms || 0);
+            if (aiMonitoringRef.current && aiBandRef.current[track.key]?.enabled && !aiBandRef.current[track.key]?.muted) {
+              window.setTimeout(() => playBassNote(n.note, n.velocity, n.duration_ms, aiBandRef.current[track.key].volume * aiVolumeRef.current).catch(() => setMetrics((m) => ({ ...m, droppedCount: m.droppedCount + 1 }))), n.start_offset_ms || 0);
             }
           });
-          const clip = makeClip({ track: track.label, instrument: track.label.replace('AI ', ''), startTimeMs: playheadMs, durationMs: msg.segment_duration_ms || 1000, notes: msg.notes.map((n) => ({ note: n.note, velocity: n.velocity, startOffsetMs: n.start_offset_ms || 0, durationMs: n.duration_ms || 350 })), source: 'ai', name: `${track.label} Segment`, loopMs });
+          const clip = makeClip({ track: track.label, instrument: track.label.replace('AI ', ''), startTimeMs: playheadMsRef.current, durationMs: msg.segment_duration_ms || 1000, notes: msg.notes.map((n) => ({ note: n.note, velocity: n.velocity, startOffsetMs: n.start_offset_ms || 0, durationMs: n.duration_ms || 350 })), source: 'ai', name: `${track.label} Segment`, loopMs: loopMsRef.current });
           setClips((prev) => [clip, ...prev].slice(0, 200));
           addRecent(setRecentAiEvents, { ...msg, timestamp: now });
         }
@@ -274,11 +280,14 @@ export default function App() {
     return () => {
       socketRef.current?.disconnect();
       stopMidiRef.current?.();
-      disconnectAIEngine();
       demoTimersRef.current.forEach((id) => clearTimeout(id));
       stopAudioInput();
     };
-  }, [wsUrl, aiBand, aiMonitoring, aiVolume, isRecording, sessionMode, playheadMs, loopMs]);
+  }, [wsUrl]);
+
+  useEffect(() => () => {
+    disconnectAIEngine();
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -586,7 +595,7 @@ export default function App() {
             <section className="panel">
               <h2>Live MIDI Input</h2>
               <div className="row wrap">
-                <button className="btn" onClick={() => { setAiEngineConnectionStatus('connecting'); connectAIEngine(DEFAULT_WS_URL); }}>Connect AI Engine</button>
+                <button className="btn" onClick={() => { setAiEngineConnectionStatus('connecting'); connectAIEngine(wsUrl); }}>Connect AI Engine</button>
                 <button className="btn secondary" onClick={startMidiHotPath}>Start MIDI Input</button>
               </div>
               <button className="btn" onClick={handleConnectMidi}>Connect MIDI</button>

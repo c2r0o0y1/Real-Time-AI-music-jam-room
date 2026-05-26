@@ -25,5 +25,6 @@ class AudioChunkMessage(BaseModel):
 class SessionState(BaseModel):
     session_id: str
     active_notes: list[int] = Field(default_factory=list)
+    current_chord: str = "None"
     recent_events: list[dict] = Field(default_factory=list)
     events_received: int = 0

@@ -14,7 +14,7 @@ ENV/
 .env.*
 
 # Tool caches
-.pytest_cache/s
+.pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage

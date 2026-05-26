@@ -45,5 +45,11 @@ class SessionManager:
 
         return session
 
+    def set_current_chord(self, session_id: str, chord: str) -> SessionState:
+        """Updates and returns the session's currently detected chord."""
+        session = self.get_or_create_session(session_id)
+        session.current_chord = chord
+        return session
+
 
 session_manager = SessionManager()
