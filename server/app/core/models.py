@@ -3,6 +3,16 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class MusicContext(BaseModel):
+    input_type: str = "midi"
+    user_instrument: str = "MIDI Keyboard"
+    detected_chord: str = "None"
+    estimated_key: str = "Unknown"
+    bpm: int = 90
+    active_notes: list[int] = Field(default_factory=list)
+    confidence: float = 0.0
+
+
 class MidiEventMessage(BaseModel):
     type: Literal["midi_event"]
     event: Literal["note_on", "note_off"]
@@ -26,5 +36,10 @@ class SessionState(BaseModel):
     session_id: str
     active_notes: list[int] = Field(default_factory=list)
     current_chord: str = "None"
+    estimated_key: str = "Unknown"
+    bpm: int = 90
+    user_instrument: str = "MIDI Keyboard"
+    input_type: str = "midi"
+    last_music_context: MusicContext | None = None
     recent_events: list[dict] = Field(default_factory=list)
     events_received: int = 0

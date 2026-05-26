@@ -1,4 +1,4 @@
-from app.core.models import SessionState
+from app.core.models import MusicContext, SessionState
 
 
 class SessionManager:
@@ -49,6 +49,13 @@ class SessionManager:
         """Updates and returns the session's currently detected chord."""
         session = self.get_or_create_session(session_id)
         session.current_chord = chord
+        return session
+
+    def set_last_music_context(self, session_id: str, context: MusicContext) -> SessionState:
+        """Stores the latest unified music context on the session."""
+        session = self.get_or_create_session(session_id)
+        session.last_music_context = context
+        session.estimated_key = context.estimated_key
         return session
 
 

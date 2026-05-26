@@ -7,6 +7,9 @@ logger = logging.getLogger(__name__)
 
 def handle_audio_chunk(session_id: str, raw_message: dict) -> dict:
     """Validates audio chunk metadata, logs receipt, and returns an audio_ack."""
+    # TODO: Future audio path:
+    # audio_chunk -> audio feature extraction -> detected chord/key/rhythm ->
+    # same MusicContext shape used by MIDI.
     audio_message = AudioChunkMessage.model_validate(raw_message)
     logger.info(
         "audio_chunk session=%s sample_rate=%s channels=%s duration_ms=%s format=%s",
