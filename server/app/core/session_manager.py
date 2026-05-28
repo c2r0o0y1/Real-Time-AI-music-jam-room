@@ -1,4 +1,4 @@
-from app.core.models import MusicContext, SessionState
+from app.core.models import MidiWindowFeatures, MusicContext, SessionState
 
 
 class SessionManager:
@@ -49,6 +49,22 @@ class SessionManager:
         """Updates and returns the session's currently detected chord."""
         session = self.get_or_create_session(session_id)
         session.current_chord = chord
+        return session
+
+    def set_context_source(self, session_id: str, context_source: str) -> SessionState:
+        """Tracks where the current chord context originated."""
+        session = self.get_or_create_session(session_id)
+        session.context_source = context_source
+        return session
+
+    def set_last_window_features(
+        self,
+        session_id: str,
+        window_features: MidiWindowFeatures,
+    ) -> SessionState:
+        """Stores the latest sliding-window MIDI features on the session."""
+        session = self.get_or_create_session(session_id)
+        session.last_window_features = window_features
         return session
 
     def set_last_music_context(self, session_id: str, context: MusicContext) -> SessionState:

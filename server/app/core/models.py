@@ -3,6 +3,15 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class MidiWindowFeatures(BaseModel):
+    window_notes: list[int] = Field(default_factory=list)
+    window_pitch_classes: list[int] = Field(default_factory=list)
+    window_chord: str = "None"
+    note_density: int = 0
+    window_duration_ms: int = 2000
+    context_source: str = "active_notes"
+
+
 class MusicContext(BaseModel):
     input_type: str = "midi"
     user_instrument: str = "MIDI Keyboard"
@@ -10,6 +19,9 @@ class MusicContext(BaseModel):
     estimated_key: str = "Unknown"
     bpm: int = 90
     active_notes: list[int] = Field(default_factory=list)
+    window_notes: list[int] = Field(default_factory=list)
+    note_density: int = 0
+    context_source: str = "active_notes"
     confidence: float = 0.0
 
 
@@ -36,10 +48,13 @@ class SessionState(BaseModel):
     session_id: str
     active_notes: list[int] = Field(default_factory=list)
     current_chord: str = "None"
+    context_source: str = "active_notes"
     estimated_key: str = "Unknown"
     bpm: int = 90
     user_instrument: str = "MIDI Keyboard"
     input_type: str = "midi"
+    window_duration_ms: int = 2000
+    last_window_features: MidiWindowFeatures | None = None
     last_music_context: MusicContext | None = None
     recent_events: list[dict] = Field(default_factory=list)
     events_received: int = 0
