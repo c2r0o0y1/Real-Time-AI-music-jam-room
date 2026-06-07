@@ -2,6 +2,7 @@ import logging
 
 from app.core.models import MidiEventMessage
 from app.core.session_manager import session_manager
+from app.generation.rule_based_generator import generate_bass_segment
 from app.music.chord_detector_midi import detect_chord_from_midi_notes
 from app.music.feature_extractor import extract_midi_window_features
 from app.music.music_context import build_music_context_from_session
@@ -39,6 +40,13 @@ def handle_midi_event(session_id: str, raw_message: dict) -> dict:
     session = session_manager.set_context_source(session_id, context_source)
     context = build_music_context_from_session(session)
     session = session_manager.set_last_music_context(session_id, context)
+    accompaniment = generate_bass_segment(context)
+    session = session_manager.set_last_generated_segment(session_id, accompaniment)
+    logger.info(
+        "Session %s generated bass segment for chord %s",
+        session_id,
+        accompaniment.chord,
+    )
     logger.info(
         "Session %s context: chord=%s, key=%s, bpm=%s, active_notes=%s",
         session_id,
@@ -49,7 +57,7 @@ def handle_midi_event(session_id: str, raw_message: dict) -> dict:
     )
 
     return {
-        "type": "music_context_update",
+        "type": "hot_path_update",
         "status": "updated",
         "session_id": session_id,
         "event": midi_message.event,
@@ -57,7 +65,8 @@ def handle_midi_event(session_id: str, raw_message: dict) -> dict:
         "velocity": midi_message.velocity,
         "active_notes": session.active_notes,
         "detected_chord": session.current_chord,
-        "window_features": window_features.model_dump(),
         "context": context.model_dump(),
+        "accompaniment": accompaniment.model_dump(),
         "events_received": session.events_received,
+        "segments_generated": session.segments_generated,
     }

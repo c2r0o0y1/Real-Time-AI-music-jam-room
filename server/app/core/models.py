@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,23 @@ class MusicContext(BaseModel):
     note_density: int = 0
     context_source: str = "active_notes"
     confidence: float = 0.0
+
+
+class AccompanimentNote(BaseModel):
+    note: int
+    velocity: int
+    start_offset_ms: int
+    duration_ms: int
+
+
+class AccompanimentSegment(BaseModel):
+    type: str = "accompaniment_segment"
+    track: str = "bass"
+    instrument: str = "bass"
+    chord: str
+    notes: list[AccompanimentNote]
+    segment_duration_ms: int = 1000
+    fallback_used: bool = False
 
 
 class MidiEventMessage(BaseModel):
@@ -56,5 +73,7 @@ class SessionState(BaseModel):
     window_duration_ms: int = 2000
     last_window_features: MidiWindowFeatures | None = None
     last_music_context: MusicContext | None = None
+    last_generated_segment: Optional[AccompanimentSegment] = None
     recent_events: list[dict] = Field(default_factory=list)
     events_received: int = 0
+    segments_generated: int = 0

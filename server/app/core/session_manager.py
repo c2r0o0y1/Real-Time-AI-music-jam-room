@@ -1,4 +1,9 @@
-from app.core.models import MidiWindowFeatures, MusicContext, SessionState
+from app.core.models import (
+    AccompanimentSegment,
+    MidiWindowFeatures,
+    MusicContext,
+    SessionState,
+)
 
 
 class SessionManager:
@@ -72,6 +77,18 @@ class SessionManager:
         session = self.get_or_create_session(session_id)
         session.last_music_context = context
         session.estimated_key = context.estimated_key
+        return session
+
+    def set_last_generated_segment(
+        self,
+        session_id: str,
+        segment: AccompanimentSegment,
+    ) -> SessionState:
+        """Stores the latest generated accompaniment segment on the session."""
+        session = self.get_or_create_session(session_id)
+        session.last_generated_segment = segment
+        if segment.notes:
+            session.segments_generated += 1
         return session
 
 
