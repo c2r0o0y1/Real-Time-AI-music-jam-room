@@ -39,7 +39,16 @@ class AccompanimentSegment(BaseModel):
     chord: str
     notes: list[AccompanimentNote]
     segment_duration_ms: int = 1000
+    deadline_status: str = "unknown"
     fallback_used: bool = False
+
+
+class LatencyMetrics(BaseModel):
+    server_receive_time_ms: int
+    processing_time_ms: float
+    generation_time_ms: float
+    scheduler_time_ms: float
+    deadline_ms: int = 100
 
 
 class MidiEventMessage(BaseModel):
@@ -74,6 +83,8 @@ class SessionState(BaseModel):
     last_window_features: MidiWindowFeatures | None = None
     last_music_context: MusicContext | None = None
     last_generated_segment: Optional[AccompanimentSegment] = None
+    last_latency_metrics: Optional[LatencyMetrics] = None
     recent_events: list[dict] = Field(default_factory=list)
     events_received: int = 0
     segments_generated: int = 0
+    fallback_count: int = 0

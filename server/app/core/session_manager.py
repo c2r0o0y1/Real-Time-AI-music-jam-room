@@ -1,5 +1,6 @@
 from app.core.models import (
     AccompanimentSegment,
+    LatencyMetrics,
     MidiWindowFeatures,
     MusicContext,
     SessionState,
@@ -87,8 +88,20 @@ class SessionManager:
         """Stores the latest generated accompaniment segment on the session."""
         session = self.get_or_create_session(session_id)
         session.last_generated_segment = segment
-        if segment.notes:
+        if segment.notes and not segment.fallback_used:
             session.segments_generated += 1
+        if segment.fallback_used:
+            session.fallback_count += 1
+        return session
+
+    def set_last_latency_metrics(
+        self,
+        session_id: str,
+        latency_metrics: LatencyMetrics,
+    ) -> SessionState:
+        """Stores the latest hot-path latency metrics on the session."""
+        session = self.get_or_create_session(session_id)
+        session.last_latency_metrics = latency_metrics
         return session
 
 
