@@ -115,6 +115,12 @@ input[type='range'] { width: 100%; }
 .engine-status.good { color: var(--green); }
 .engine-status.warn { color: var(--yellow); }
 .engine-status.bad { color: var(--red); }
+.kv { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; color: var(--muted); font-size: 0.82rem; border-bottom: 1px solid rgba(151,168,202,0.12); }
+.kv:last-child { border-bottom: 0; }
+.kv strong { color: var(--txt); text-align: right; }
+.bass-segments { display: grid; gap: 8px; }
+.bass-segment { border: 1px solid #2b4063; border-radius: 8px; padding: 8px; background: #101a2c; }
+.bass-segment .small { margin-bottom: 0; }
 .health-track { height: 10px; border-radius: 999px; background: #0f1728; border: 1px solid var(--line); overflow: hidden; }
 .health-fill { height: 100%; }
 .health-fill.healthy { background: var(--green); }

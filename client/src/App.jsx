@@ -19,9 +19,12 @@ import JamHistoryPanel from './components/JamHistoryPanel';
 import EventLog from './components/EventLog';
 import { startMidiInput } from './services/midiService';
 import { connectAIEngine, disconnectAIEngine, sendToAIEngine, subscribeAIEngineStatus } from './services/aiEngineSocket';
+import { createBassSynth } from './services/bassSynth';
+import { createPlaybackScheduler } from './services/playbackScheduler';
 
 const DEFAULT_WS_URL = 'ws://localhost:8000/ws/session/demo-session';
 const MAX_LOG_EVENTS = 10;
+const DEFAULT_PLAYBACK_BUFFER_MS = 200;
 
 const addRecent = (setter, event, max = MAX_LOG_EVENTS) => setter((prev) => [event, ...prev].slice(0, max));
 
@@ -110,6 +113,14 @@ export default function App() {
   const [aiBand, setAiBand] = useState(defaultBand);
   const [userVolume, setUserVolume] = useState(0.8);
   const [aiVolume, setAiVolume] = useState(0.7);
+  const [audioReady, setAudioReady] = useState(false);
+  const [playbackBufferMs] = useState(DEFAULT_PLAYBACK_BUFFER_MS);
+  const [playbackStatus, setPlaybackStatus] = useState({
+    lastScheduledChord: 'Waiting',
+    lastSegmentDeadline: '--',
+    fallbackUsed: false,
+  });
+  const [aiBassSegments, setAiBassSegments] = useState([]);
 
   const [activeNotes, setActiveNotes] = useState([]);
   const [recentMidiEvents, setRecentMidiEvents] = useState([]);
@@ -150,6 +161,9 @@ export default function App() {
   const clockStartRef = useRef(null);
   const lastAudioClipAtRef = useRef(0);
   const stopMidiRef = useRef(() => {});
+  const playbackAudioContextRef = useRef(null);
+  const bassSynthRef = useRef(null);
+  const playbackSchedulerRef = useRef(null);
 
   const isPlaying = sessionMode === 'playing' || sessionMode === 'recording' || sessionMode === 'demo';
   const isRecording = sessionMode === 'recording';
@@ -172,6 +186,109 @@ export default function App() {
 
   const recommendedAudioInstruments = new Set(['Guitar', 'Voice', 'Violin', 'Acoustic Piano', 'Drums', 'Other']);
   const recommendation = recommendedAudioInstruments.has(userInstrument) ? 'Recommended input: Audio Interface / Microphone' : '';
+
+  const ensurePlaybackScheduler = async () => {
+    if (!playbackAudioContextRef.current) {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor) {
+        setMetrics((m) => ({ ...m, droppedCount: m.droppedCount + 1 }));
+        return null;
+      }
+
+      const audioContext = new AudioContextCtor();
+      const rawSynth = createBassSynth(audioContext);
+      const synth = {
+        playNote: (noteOptions) => {
+          const channel = aiBandRef.current.bass;
+          if (!aiMonitoringRef.current || !channel?.enabled || channel.muted) return null;
+          return rawSynth.playNote({
+            ...noteOptions,
+            velocity: Math.round((noteOptions.velocity ?? 80) * channel.volume * aiVolumeRef.current),
+          });
+        },
+        stopAll: rawSynth.stopAll,
+      };
+
+      playbackAudioContextRef.current = audioContext;
+      bassSynthRef.current = synth;
+      playbackSchedulerRef.current = createPlaybackScheduler({
+        audioContext,
+        synth,
+        playbackBufferMs,
+      });
+    }
+
+    const audioContext = playbackAudioContextRef.current;
+    if (audioContext.state === 'suspended') {
+      try {
+        await audioContext.resume();
+      } catch {
+        setAudioReady(false);
+        return playbackSchedulerRef.current;
+      }
+    }
+
+    setAudioReady(audioContext.state === 'running');
+    playbackSchedulerRef.current?.setPlaybackBufferMs(playbackBufferMs);
+    return playbackSchedulerRef.current;
+  };
+
+  const addScheduledBassSegment = (scheduledSegment) => {
+    if (!scheduledSegment) return;
+
+    const track = mapAiTrack(scheduledSegment.track || 'bass');
+    const durationMs = scheduledSegment.segment_duration_ms || 1000;
+    const scheduledStartLabel = scheduledSegment.scheduled_start_time?.toFixed(2) || '--';
+
+    setPlaybackStatus({
+      lastScheduledChord: scheduledSegment.chord || 'Unknown',
+      lastSegmentDeadline: scheduledSegment.deadline_status || 'unknown',
+      fallbackUsed: Boolean(scheduledSegment.fallback_used),
+    });
+
+    setUpcomingSegment({
+      startsInMs: scheduledSegment.playback_buffer_ms ?? playbackBufferMs,
+      durationLabel: `${(durationMs / 1000).toFixed(1)} sec`,
+      instruments: track.label.replace('AI ', ''),
+      deadline: scheduledSegment.deadline_status || 'unknown',
+      bufferReady: `${((scheduledSegment.playback_buffer_ms ?? playbackBufferMs) / 1000).toFixed(1)} sec`,
+    });
+
+    setAiBassSegments((prev) => [{
+      id: scheduledSegment.segment_id,
+      chord: scheduledSegment.chord || 'Unknown',
+      noteCount: scheduledSegment.notes.length,
+      scheduledStartTime: scheduledStartLabel,
+      fallbackUsed: Boolean(scheduledSegment.fallback_used),
+      deadlineStatus: scheduledSegment.deadline_status || 'unknown',
+    }, ...prev.filter((segment) => segment.id !== scheduledSegment.segment_id)].slice(0, 6));
+
+    const clip = makeClip({
+      track: track.label,
+      instrument: track.label.replace('AI ', ''),
+      startTimeMs: playheadMsRef.current + (scheduledSegment.playback_buffer_ms ?? playbackBufferMs),
+      durationMs,
+      notes: scheduledSegment.notes.map((n) => ({
+        note: n.note,
+        velocity: n.velocity,
+        startOffsetMs: n.start_offset_ms || 0,
+        durationMs: n.duration_ms || 350,
+      })),
+      source: 'ai',
+      name: `${scheduledSegment.chord || track.label} Bass`,
+      loopMs: loopMsRef.current,
+    });
+
+    setClips((prev) => [clip, ...prev.filter((c) => c.id !== clip.id)].slice(0, 200));
+    setAiBand((prev) => ({
+      ...prev,
+      bass: {
+        ...prev.bass,
+        status: scheduledSegment.fallback_used ? 'Fallback' : 'Scheduled',
+        clipCount: prev.bass.clipCount + 1,
+      },
+    }));
+  };
 
   const aiEngineStatus = useMemo(() => {
     if (wsStatus !== 'connected') return 'Offline';
@@ -224,7 +341,7 @@ export default function App() {
     socketRef.current = createSocket({
       url: wsUrl,
       onStatusChange: setWsStatus,
-      onMessage: (msg) => {
+      onMessage: async (msg) => {
         const now = Date.now();
         if (!msg || typeof msg !== 'object') {
           setMetrics((m) => ({ ...m, droppedCount: m.droppedCount + 1 }));
@@ -246,6 +363,35 @@ export default function App() {
         lastAiEventAtRef.current = now;
         setMetrics((m) => ({ ...m, aiReceivedCount: m.aiReceivedCount + 1, playbackBufferSize: Math.min(64, m.playbackBufferSize + 1), lastResponseTime: new Date(now).toLocaleTimeString(), roundTripLatencyMs: msg.received_timestamp ? Math.max(0, now - msg.received_timestamp) : m.roundTripLatencyMs }));
 
+        if (msg.type === 'hot_path_update') {
+          const context = msg.context || {};
+          const accompaniment = msg.accompaniment;
+
+          setMusicContext((prev) => ({
+            ...prev,
+            chord: context.detected_chord || msg.detected_chord || accompaniment?.chord || prev.chord,
+            key: context.estimated_key || prev.key,
+            confidence: typeof context.confidence === 'number' ? `${Math.round(context.confidence * 100)}%` : prev.confidence,
+          }));
+
+          setMetrics((m) => ({
+            ...m,
+            serverLatencyMs: typeof msg.metrics?.processing_time_ms === 'number' ? Math.round(msg.metrics.processing_time_ms) : m.serverLatencyMs,
+            missedDeadlineCount: accompaniment?.deadline_status && accompaniment.deadline_status !== 'on_time' ? m.missedDeadlineCount + 1 : m.missedDeadlineCount,
+          }));
+
+          if (accompaniment) {
+            const scheduler = await ensurePlaybackScheduler();
+            const scheduledSegment = scheduler?.scheduleSegment(accompaniment);
+            if (scheduledSegment) {
+              addScheduledBassSegment(scheduledSegment);
+            }
+          }
+
+          addRecent(setRecentAiEvents, { ...msg, timestamp: now });
+          return;
+        }
+
         if (msg.type === 'bass_note') {
           const track = mapAiTrack('bass');
           const channel = aiBandRef.current[track.key];
@@ -261,17 +407,14 @@ export default function App() {
         }
 
         if (msg.type === 'accompaniment_segment' && Array.isArray(msg.notes)) {
-          const track = mapAiTrack(msg.track || 'bass');
-          const maxOffset = Math.max(...msg.notes.map((n) => n.start_offset_ms || 0), 0);
-          setUpcomingSegment({ startsInMs: maxOffset, durationLabel: `${Math.round((msg.segment_duration_ms || 1000) / 1000)} sec`, instruments: track.label.replace('AI ', ''), deadline: maxOffset > 180 ? 'Late' : 'On Time', bufferReady: `${((msg.segment_duration_ms || 1000) / 1000).toFixed(1)} sec` });
-          msg.notes.forEach((n) => {
-            if ((n.start_offset_ms || 0) > 180) setMetrics((m) => ({ ...m, missedDeadlineCount: m.missedDeadlineCount + 1 }));
-            if (aiMonitoringRef.current && aiBandRef.current[track.key]?.enabled && !aiBandRef.current[track.key]?.muted) {
-              window.setTimeout(() => playBassNote(n.note, n.velocity, n.duration_ms, aiBandRef.current[track.key].volume * aiVolumeRef.current).catch(() => setMetrics((m) => ({ ...m, droppedCount: m.droppedCount + 1 }))), n.start_offset_ms || 0);
+          const scheduler = await ensurePlaybackScheduler();
+          const scheduledSegment = scheduler?.scheduleSegment(msg);
+          if (scheduledSegment) {
+            addScheduledBassSegment(scheduledSegment);
+            if (scheduledSegment.deadline_status && scheduledSegment.deadline_status !== 'on_time') {
+              setMetrics((m) => ({ ...m, missedDeadlineCount: m.missedDeadlineCount + 1 }));
             }
-          });
-          const clip = makeClip({ track: track.label, instrument: track.label.replace('AI ', ''), startTimeMs: playheadMsRef.current, durationMs: msg.segment_duration_ms || 1000, notes: msg.notes.map((n) => ({ note: n.note, velocity: n.velocity, startOffsetMs: n.start_offset_ms || 0, durationMs: n.duration_ms || 350 })), source: 'ai', name: `${track.label} Segment`, loopMs: loopMsRef.current });
-          setClips((prev) => [clip, ...prev].slice(0, 200));
+          }
           addRecent(setRecentAiEvents, { ...msg, timestamp: now });
         }
       },
@@ -525,10 +668,19 @@ export default function App() {
 
   const canSendManualMidi = aiEngineConnectionStatus === 'connected';
 
-  const startLiveJam = () => setSessionMode('playing');
+  const enableAudioPlayback = async () => {
+    await ensurePlaybackScheduler();
+  };
+
+  const startLiveJam = () => {
+    enableAudioPlayback();
+    setSessionMode('playing');
+  };
   const stopSession = () => {
     setSessionMode('stopped');
     stopAllPlayback();
+    bassSynthRef.current?.stopAll();
+    playbackSchedulerRef.current?.clearQueue();
     demoTimersRef.current.forEach((id) => clearTimeout(id));
     demoTimersRef.current = [];
   };
@@ -596,6 +748,7 @@ export default function App() {
               <h2>Live MIDI Input</h2>
               <div className="row wrap">
                 <button className="btn" onClick={() => { setAiEngineConnectionStatus('connecting'); connectAIEngine(wsUrl); }}>Connect AI Engine</button>
+                <button className="btn secondary" onClick={enableAudioPlayback}>{audioReady ? 'Audio Enabled' : 'Enable Audio'}</button>
                 <button className="btn secondary" onClick={startMidiHotPath}>Start MIDI Input</button>
               </div>
               <button className="btn" onClick={handleConnectMidi}>Connect MIDI</button>
@@ -692,8 +845,27 @@ export default function App() {
           </section>
 
           <AIEngineStatus status={aiEngineStatus} />
+          <section className="panel band-engine-status">
+            <h2>AI Band Engine</h2>
+            <div className="kv"><span>Playback Buffer</span><strong>{playbackBufferMs} ms</strong></div>
+            <div className="kv"><span>Last Scheduled Chord</span><strong>{playbackStatus.lastScheduledChord}</strong></div>
+            <div className="kv"><span>Last Segment Deadline</span><strong>{playbackStatus.lastSegmentDeadline}</strong></div>
+            <div className="kv"><span>Fallback Used</span><strong>{playbackStatus.fallbackUsed ? 'Yes' : 'No'}</strong></div>
+          </section>
           <BufferHealthBar health={metrics.playbackBufferHealth} />
           <UpcomingSegmentPanel segment={upcomingSegment} />
+          <section className="panel bass-segments">
+            <h2>AI Bass Segments</h2>
+            {aiBassSegments.length ? aiBassSegments.map((segment) => (
+              <div className="bass-segment" key={segment.id}>
+                <div className="row between">
+                  <strong>{segment.chord}</strong>
+                  <span className="tiny">{segment.noteCount} notes</span>
+                </div>
+                <p className="small">Start {segment.scheduledStartTime}s | {segment.deadlineStatus} | Fallback {segment.fallbackUsed ? 'yes' : 'no'}</p>
+              </div>
+            )) : <p className="small">Waiting for scheduled bass.</p>}
+          </section>
           <section className="panel">
             <h2>Audio Metrics</h2>
             <p className="small">Audio stream: {audioStatus}</p>
